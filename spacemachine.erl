@@ -6,6 +6,36 @@ start(What, Options) ->
     Pid = spawn(?MODULE, What, [Options, ID]),
     {ID, Pid}.
 
+%% Starts the world
+start_world(Options) ->
+    case running(idbroker) of
+	true ->
+	    ok;
+	false ->
+	    register(idbroker, spawn(?MODULE, idbroker, [0]))
+    end,
+    case running(world) of
+	true ->
+	    ok;
+	false ->
+	    spawn(?MODULE, world_supervisor, [Options])
+    end,
+    ok.
+
+%% Supervises the world process and restarts the process if required.
+world_supervisor(Options) ->
+
+    %% trap dem exits
+    process_flag(trap_exit, true),
+    Dict = dict:new(),
+    register(world, spawn_link(?MODULE, world, [Options, newid(), Dict])),
+    
+    receive
+	_ ->
+	    io:format("Caught exit~n"),
+	    world_supervisor(Options)	    
+    end.
+
 %% Models the world and all the objects in it.
 world(Options, MyID, State) ->
     receive
@@ -30,6 +60,37 @@ world(Options, MyID, State) ->
 	    world(Options, MyID, State)    
     end.
 
+reset_world() ->
+    world ! {reload, self(), all},
+    receive
+	{reloaded, done} ->
+	    ok
+    end.
+
+%% Creates a new object in the world, allocates it an ID and registers
+%% the ID in the state of the World.
+object(Options, MyID) ->
+    receive
+	{world, Message} ->
+	    object(Options, MyID);
+	{reload, Pid} ->
+	    Pid ! {reloaded, done},
+	    ?MODULE:object(Options, MyID)
+    end.
+
+%% Creates a new object and registers it in the world.
+newobj(Options) ->
+    {ID, Pid} = start(object, Options),
+    register_object({ID, Pid}),
+    Pid.
+
+%% Registers an ID with a Pid in the world.
+register_object({ID, Pid}) ->
+    world ! {newobj, {ID, Pid}}.
+%% Unregisters an ID from the world
+unregister_object(ID) ->
+    world ! {remove, ID}.
+
 %% Checks if the world is running and returns a boolean respective of
 %% that.
 running(Who) ->
@@ -47,7 +108,6 @@ running(Who) ->
 		  false
 	  end.
 
-
 %% Helper method to restart objects and reload their code.
 restart_objects(Objects) ->
     dict:map(
@@ -62,59 +122,6 @@ restart_objects(Objects) ->
 	      end
       end, Objects),
     Objects.
-
-%% Supervises the world process and restarts the process if required.
-world_supervisor(Options) ->
-
-    %% trap dem exits
-    process_flag(trap_exit, true),
-    Dict = dict:new(),
-    register(world, spawn_link(?MODULE, world, [Options, newid(), Dict])),
-    
-    receive
-	_ ->
-	    io:format("Caught exit~n"),
-	    world_supervisor(Options)	    
-    end.
-    
-
-%% Starts the world
-start_world(Options) ->
-    case running(idbroker) of
-	true ->
-	    ok;
-	false ->
-	    register(idbroker, spawn(?MODULE, idbroker, [0]))
-    end,
-    case running(world) of
-	true ->
-	    ok;
-	false ->
-	    spawn(?MODULE, world_supervisor, [Options])
-    end,
-    sleep(1),
-    running(idbroker) and running(world).
-
-%% Creates a new object in the world, allocates it an ID and registers
-%% the ID in the state of the World.
-object(Options, MyID) ->
-    receive
-	{world, Message} ->
-	    object(Options, MyID);
-	{reload, Pid} ->
-	    Pid ! {reloaded, done},
-	    ?MODULE:object(Options, MyID)
-    end.
-
-register_object({ID, Pid}) ->
-    world ! {newobj, {ID, Pid}}.
-unregister_object(ID) ->
-    world ! {remove, ID}.
-
-newobj(Options) ->
-    {ID, Pid} = start(object, Options),
-    register_object({ID, Pid}),
-    Pid.
 
 idbroker(N) ->
     receive
@@ -133,13 +140,6 @@ newid() ->
 	    ok
     end,
     N.
-
-reset_world() ->
-    world ! {reload, self(), all},
-    receive
-	{reloaded, done} ->
-	    ok
-    end.
 
 sleep(N) ->
     receive
