@@ -60,6 +60,7 @@ world(Options, MyID, State) ->
 	    world(Options, MyID, State)    
     end.
 
+%% Asks the world to reset everything, which will reload code.
 reset_world() ->
     world ! {reload, self(), all},
     receive
@@ -123,6 +124,8 @@ restart_objects(Objects) ->
       end, Objects),
     Objects.
 
+%% Creates an async process which replies with atomically incremented
+%% integers
 idbroker(N) ->
     receive
 	{newid, Pid} ->
@@ -133,6 +136,7 @@ idbroker(N) ->
 	    idbroker(N)
     end.
 
+%% Retrieves an ID from the idbroker service
 newid() ->
     idbroker ! {newid, self()},
     receive
@@ -141,6 +145,7 @@ newid() ->
     end,
     N.
 
+%% Sleeps for N milliseconds
 sleep(N) ->
     receive
     after
